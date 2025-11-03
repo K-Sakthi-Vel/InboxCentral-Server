@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+enum Channel {
+  SMS
+  WHATSAPP
+  EMAIL
+  TWITTER
+  MESSENGER
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+}
+
+model User {
+  id         String       @id @default(cuid())
+  email      String       @unique
+  name       String?
+  avatarUrl  String?
+  createdAt  DateTime     @default(now())
+  teamRoles  TeamMember[]
+}
+
+model Team {
+  id           String       @id @default(cuid())
+  name         String
+  createdAt    DateTime     @default(now())
+  members      TeamMember[]
+  contacts     Contact[]
+  messages     Message[]
+  events       Event[]
+  
+  // 💡 NEW FIELDS START HERE
+  notes        Note[]         // The list of all Notes belonging to this Team
+  scheduledJobs ScheduledJob[] // The list of all ScheduledJobs belonging to this Team
+  // 💡 NEW FIELDS END HERE
+}
+
+model TeamMember {
+  id        String  @id @default(cuid())
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+  team      Team    @relation(fields: [teamId], references: [id])
+  teamId    String
+  role      Role    @default(VIEWER)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, teamId])
+}
+
+model Contact {
+  id           String   @id @default(cuid())
+  team         Team     @relation(fields: [teamId], references: [id])
+  teamId       String
+  name         String?
+  phone        String?  @db.VarChar(50)
+  email        String?  @db.VarChar(255)
+  social       Json?
+  mergedIntoId String?  // if merged, points to another Contact.id
+  messages     Message[]
+  notes        Note[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Message {
+  id           String        @id @default(cuid())
+  contact      Contact       @relation(fields: [contactId], references: [id])
+  contactId    String
+  team         Team          @relation(fields: [teamId], references: [id])
+  teamId       String
+  channel      Channel
+  direction    Direction
+  body         String?
+  media        Json?         // array of media URL strings
+  externalId   String?       @unique
+  status       MessageStatus @default(PENDING)
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  createdById  String?
+  createdAt    DateTime      @default(now())
+  metadata     Json?
+  threadKey    String?
+}
+
+model Note {
+  id         String   @id @default(cuid())
+  contact    Contact  @relation(fields: [contactId], references: [id])
+  contactId  String
+  team       Team     @relation(fields: [teamId], references: [id])
+  teamId     String
+  authorId   String
+  content    String
+  isPrivate  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ScheduledJob {
+  id          String   @id @default(cuid())
+  team        Team     @relation(fields: [teamId], references: [id])
+  teamId      String
+  messageId   String?  // optional linked Message for scheduled sends
+  payload     Json
+  scheduledAt DateTime
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(5)
+  backoff     Json?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  team      Team     @relation(fields: [teamId], references: [id])
+  teamId    String
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+}
