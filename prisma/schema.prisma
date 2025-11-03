@@ -37,6 +37,8 @@ enum MessageStatus {
 model User {
   id         String       @id @default(cuid())
   email      String       @unique
+  password   String?      // For email/password login
+  googleId   String?      @unique // For Google OAuth
   name       String?
   avatarUrl  String?
   createdAt  DateTime     @default(now())
