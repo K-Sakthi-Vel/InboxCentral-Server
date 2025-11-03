@@ -33,6 +33,7 @@ app.get('/', async (req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ ok: true, ts: new Date().toISOString() });
   } catch (err) {
+    console.log("db_connection_failed", err)
     res.status(500).json({ ok: false, error: 'db_connection_failed' });
   }
 });
