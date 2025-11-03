@@ -28,7 +28,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
 /** Health */
-app.get('/health', async (req, res) => {
+app.get('/', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ ok: true, ts: new Date().toISOString() });
