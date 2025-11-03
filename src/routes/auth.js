@@ -6,6 +6,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { sendWhatsappOtp, verifyWhatsappOtp } = require('../lib/twilio'); // Import Twilio functions
 require('dotenv').config({ path: './Backend/.env' });
 
 // JWT Secret from environment variables
@@ -76,7 +77,7 @@ const generateToken = (user) => {
 // @route POST /api/auth/signup
 // @desc Register user
 router.post('/signup', async (req, res) => {
-  const { email, password, name } = req.body;
+  const { email, password, name, twilioNumber } = req.body;
 
   try {
     let user = await prisma.user.findUnique({ where: { email } });
@@ -91,11 +92,22 @@ router.post('/signup', async (req, res) => {
         email,
         password: hashedPassword,
         name,
+        twilioNumber: twilioNumber || null, // Save twilioNumber if provided
+        isTwilioVerified: false, // Default to false
       },
     });
 
     const token = generateToken(user);
-    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    res.status(201).json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        isTwilioVerified: user.isTwilioVerified,
+        twilioNumber: user.twilioNumber,
+      },
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -119,7 +131,16 @@ router.post('/login', async (req, res) => {
     }
 
     const token = generateToken(user);
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        isTwilioVerified: user.isTwilioVerified,
+        twilioNumber: user.twilioNumber,
+      },
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -161,10 +182,115 @@ router.get('/session', async (req, res) => {
       return res.json({ user: null });
     }
 
-    res.json({ user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl } });
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        isTwilioVerified: user.isTwilioVerified,
+        twilioNumber: user.twilioNumber,
+      },
+    });
   } catch (error) {
     console.error('JWT verification failed:', error.message);
     return res.json({ user: null });
+  }
+});
+
+// Middleware to protect routes (optional, can be used for specific routes)
+const protect = (req, res, next) => {
+  const token = req.headers.authorization && req.headers.authorization.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ message: 'No token, authorization denied' });
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Token is not valid' });
+  }
+};
+
+// @route POST /api/auth/request-twilio-otp
+// @desc Request OTP for Twilio number verification
+router.post('/request-twilio-otp', protect, async (req, res) => {
+  const { twilioNumber } = req.body;
+  const userId = req.user.id; // User ID from JWT token
+
+  if (!twilioNumber) {
+    return res.status(400).json({ message: 'Twilio number is required.' });
+  }
+
+  try {
+    const success = await sendWhatsappOtp(userId, twilioNumber);
+    if (success) {
+      res.status(200).json({ message: 'OTP sent successfully to your WhatsApp.' });
+    } else {
+      res.status(500).json({ message: 'Failed to send OTP.' });
+    }
+  } catch (error) {
+    console.error('Error requesting Twilio OTP:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
+// @route POST /api/auth/verify-twilio-otp
+// @desc Verify OTP for Twilio number
+router.post('/verify-twilio-otp', protect, async (req, res) => {
+  const { twilioNumber, otp } = req.body;
+  const userId = req.user.id; // User ID from JWT token
+
+  if (!twilioNumber || !otp) {
+    return res.status(400).json({ message: 'Twilio number and OTP are required.' });
+  }
+
+  try {
+    const result = await verifyWhatsappOtp(userId, twilioNumber, otp);
+    if (result.success) {
+      res.status(200).json({ message: result.message });
+    } else {
+      res.status(400).json({ message: result.message });
+    }
+  } catch (error) {
+    console.error('Error verifying Twilio OTP:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
+// @route PUT /api/auth/update-twilio-number
+// @desc Update user's Twilio number and reset verification status
+router.put('/update-twilio-number', protect, async (req, res) => {
+  const { twilioNumber } = req.body;
+  const userId = req.user.id;
+
+  if (!twilioNumber) {
+    return res.status(400).json({ message: 'Twilio number is required.' });
+  }
+
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        twilioNumber: twilioNumber,
+        isTwilioVerified: false, // Reset verification status
+      },
+    });
+    res.status(200).json({
+      message: 'Twilio number updated. Please verify the new number.',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        isTwilioVerified: user.isTwilioVerified,
+        twilioNumber: user.twilioNumber,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating Twilio number:', error);
+    res.status(500).json({ message: 'Server error.' });
   }
 });
 

@@ -40,9 +40,11 @@ model User {
   password   String?      // For email/password login
   googleId   String?      @unique // For Google OAuth
   name       String?
-  avatarUrl  String?
-  createdAt  DateTime     @default(now())
-  teamRoles  TeamMember[]
+  avatarUrl        String?
+  twilioNumber     String?   @unique
+  isTwilioVerified Boolean @default(false)
+  createdAt        DateTime  @default(now())
+  teamRoles        TeamMember[]
 }
 
 model Team {
