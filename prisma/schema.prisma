@@ -45,6 +45,7 @@ model User {
   isTwilioVerified Boolean @default(false)
   createdAt        DateTime  @default(now())
   teamRoles        TeamMember[]
+  notes            Note[]
 }
 
 model Team {
@@ -111,15 +112,18 @@ model Message {
 
 model Note {
   id         String   @id @default(cuid())
-  contact    Contact  @relation(fields: [contactId], references: [id])
-  contactId  String
+  contact    Contact? @relation(fields: [contactId], references: [id])
+  contactId  String?
   team       Team     @relation(fields: [teamId], references: [id])
   teamId     String
+  author     User     @relation(fields: [authorId], references: [id])
   authorId   String
   content    String
   isPrivate  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([contactId, teamId])
 }
 
 model ScheduledJob {

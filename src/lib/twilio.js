@@ -50,6 +50,20 @@ async function verifyWhatsappOtp(userId, twilioNumber, userOtp) {
   }
 
   if (otp === userOtp) {
+    // Check if the twilioNumber is already associated with another user
+    const existingUserWithTwilioNumber = await prisma.user.findFirst({
+      where: {
+        twilioNumber: twilioNumber,
+        NOT: {
+          id: userId,
+        },
+      },
+    });
+
+    if (existingUserWithTwilioNumber) {
+      return { success: false, message: 'This Twilio number is already linked to another account.' };
+    }
+
     // OTP matched, update user's Twilio verification status
     await prisma.user.update({
       where: { id: userId },

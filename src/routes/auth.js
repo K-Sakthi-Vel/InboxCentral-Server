@@ -176,10 +176,34 @@ router.get('/session', async (req, res) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    let user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      include: { teamRoles: true },
+    });
 
     if (!user) {
       return res.json({ user: null });
+    }
+
+    // If the user has no team roles, create a default team and add them to it
+    if (!user.teamRoles || user.teamRoles.length === 0) {
+      const defaultTeam = await prisma.team.create({
+        data: {
+          name: `${user.name || user.email}'s Team`,
+          members: {
+            create: {
+              userId: user.id,
+              role: 'ADMIN', // Assign as admin of their default team
+            },
+          },
+        },
+      });
+
+      // Re-fetch user with the new team role
+      user = await prisma.user.findUnique({
+        where: { id: user.id },
+        include: { teamRoles: true },
+      });
     }
 
     res.json({
@@ -190,6 +214,7 @@ router.get('/session', async (req, res) => {
         avatarUrl: user.avatarUrl,
         isTwilioVerified: user.isTwilioVerified,
         twilioNumber: user.twilioNumber,
+        teamRoles: user.teamRoles,
       },
     });
   } catch (error) {

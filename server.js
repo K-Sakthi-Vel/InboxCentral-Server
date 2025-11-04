@@ -17,6 +17,7 @@ const webhooksRouter = require('./src/routes/webhooks');
 const messagesRouter = require('./src/routes/messages');
 const inboxRouter = require('./src/routes/inbox');
 const settingsRouter = require('./src/routes/settings');
+const notesRouter = require('./src/routes/notes');
 
 const PORT = process.env.PORT || 4000;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -71,6 +72,7 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/messages', authenticateJWT, messagesRouter); // Protect messages routes
 app.use('/api/inbox', authenticateJWT, inboxRouter);       // Protect inbox routes
 app.use('/api/settings', authenticateJWT, settingsRouter); // Protect settings routes
+app.use('/api/notes', authenticateJWT, notesRouter);       // Protect notes routes
 
 /** 404 fallback */
 app.use((req, res) => res.status(404).json({ error: 'not_found' }));
