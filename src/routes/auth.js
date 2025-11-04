@@ -366,6 +366,22 @@ router.put('/update-twilio-number', protect, async (req, res) => {
   }
 
   try {
+    // Check if the new twilioNumber already exists for another user
+    if (twilioNumber) {
+      const existingUserWithTwilioNumber = await prisma.user.findFirst({
+        where: {
+          twilioNumber: twilioNumber,
+          id: {
+            not: userId, // Exclude the current user
+          },
+        },
+      });
+
+      if (existingUserWithTwilioNumber) {
+        return res.status(400).json({ message: 'This Twilio number is already associated with another account.' });
+      }
+    }
+
     const updateData = {};
     if (twilioNumber) updateData.twilioNumber = twilioNumber;
     if (twilioAccountSid) updateData.twilioAccountSid = twilioAccountSid;
