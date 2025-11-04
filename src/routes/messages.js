@@ -103,7 +103,7 @@ router.get('/thread/:id', async (req, res) => {
 
     const msgs = await prisma.message.findMany({ where: { contactId }, orderBy: { createdAt: 'asc' }, take: 200 });
 
-    const out = msgs.map((m) => ({ id: m.id, contactId: m.contactId, direction: m.direction, body: m.body, media: m.media || null, createdAt: m.createdAt.toISOString() }));
+    const out = msgs.map((m) => ({ id: m.id, contactId: m.contactId, direction: m.direction, body: m.body, media: m.media || null, createdAt: m.createdAt.toISOString(), status: m.status, scheduledAt: m.scheduledAt }));
     return res.json(out);
   } catch (err) {
     // eslint-disable-next-line no-console

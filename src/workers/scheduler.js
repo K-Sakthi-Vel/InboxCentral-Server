@@ -14,8 +14,12 @@ async function processJob(jobId) {
     const contact = await prisma.contact.findUnique({ where: { id: contactId } });
     if (!contact) throw new Error('Contact not found');
 
+    // Fetch the associated message to get the createdById (userId)
+    const message = await prisma.message.findUnique({ where: { id: job.messageId } });
+    if (!message || !message.createdById) throw new Error('Associated message or creator not found');
+
     const channel = payload.channel || 'SMS';
-    const sender = createSender(channel);
+    const sender = createSender(channel, message.createdById); // Pass userId to createSender
 
     const to = contact.phone || contact.email;
     if (!to) throw new Error('Contact has no destination');

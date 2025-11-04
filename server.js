@@ -105,17 +105,13 @@ app.use((req, res) => res.status(404).json({ error: 'not_found' }));
 /** Start server */
 const { initSocket } = require('./src/lib/socket'); // Import initSocket
 
+const { pollLoop } = require('./src/workers/scheduler');
+
 const server = app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
-  if (process.env.START_SCHEDULER === 'true') {
-    // not recommended in production; for dev convenience only
-    try {
-      require('./src/workers/scheduler');
-      console.log('Scheduler started in same process (START_SCHEDULER=true)');
-    } catch (err) {
-      console.error('Failed to start scheduler automatically', err);
-    }
-  }
+  // For dev convenience, run scheduler in same process
+  // In production, this should be a separate worker process
+  pollLoop().catch(err => console.error('Scheduler poll loop failed', err));
 });
 
 // Setup Socket.IO
