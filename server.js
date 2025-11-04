@@ -56,13 +56,38 @@ passport.use(new JwtStrategy(opts, async (jwt_payload, done) => {
 const authenticateJWT = passport.authenticate('jwt', { session: false });
 
 /** Health */
+/** Health Check Endpoint with Retry Logic */
 app.get('/', async (req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ ok: true, ts: new Date().toISOString() });
-  } catch (err) {
-    console.log("db_connection_failed", err)
-    res.status(500).json({ ok: false, error: 'db_connection_failed' });
+  const MAX_RETRIES = 3; // Number of times to try the connection
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // 1. Attempt to connect
+      await prisma.$queryRaw`SELECT 1`;
+      
+      // 2. Success! Respond immediately and break the loop
+      return res.status(200).json({ 
+        status: 'ok', 
+        database: 'connected', 
+        timestamp: new Date().toISOString(),
+        attempts: attempt // Useful for monitoring cold starts
+      });
+
+    } catch (err) {
+      // 3. Log the failure
+      console.error(`DB_CONNECTION_FAILED on attempt ${attempt}:`, err);
+
+      // 4. If it's the last attempt, fail the health check
+      if (attempt === MAX_RETRIES) {
+        return res.status(503).json({ 
+          status: 'error', 
+          database: 'disconnected', 
+          code: 'DB_CONNECTION_FAILED_AFTER_RETRIES' 
+        });
+      }
+
+      // 5. Wait a moment before the next retry (optional, but good practice)
+      await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+    }
   }
 });
 
