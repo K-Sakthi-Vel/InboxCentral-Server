@@ -76,6 +76,8 @@ app.use('/api/settings', authenticateJWT, settingsRouter); // Protect settings r
 app.use((req, res) => res.status(404).json({ error: 'not_found' }));
 
 /** Start server */
+const { initSocket } = require('./src/lib/socket'); // Import initSocket
+
 const server = app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
   if (process.env.START_SCHEDULER === 'true') {
@@ -89,9 +91,15 @@ const server = app.listen(PORT, () => {
   }
 });
 
+// Setup Socket.IO
+const io = initSocket(server, CORS_ORIGIN); // Initialize Socket.IO
+
 /** Graceful shutdown */
 async function shutdown() {
   console.log('Shutting down...');
+  io.close(() => {
+    console.log('Socket.IO server closed.');
+  });
   server.close(async () => {
     try {
       await prisma.$disconnect();
