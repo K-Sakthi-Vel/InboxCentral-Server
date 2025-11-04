@@ -17,6 +17,7 @@ router.get('/', async (req, res) => {
     const notes = await prisma.note.findMany({
       where: {
         teamId,
+        authorId: req.user.id, // Filter notes by the authenticated user
       },
       include: {
         author: {

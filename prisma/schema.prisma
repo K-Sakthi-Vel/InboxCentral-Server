@@ -43,9 +43,14 @@ model User {
   avatarUrl        String?
   twilioNumber     String?   @unique
   isTwilioVerified Boolean @default(false)
+  twilioAccountSid  String?
+  twilioAuthToken   String?
+  twilioSmsFrom     String?
+  twilioWhatsappFrom String?
   createdAt        DateTime  @default(now())
   teamRoles        TeamMember[]
   notes            Note[]
+  twilioOtp        TwilioOtp?
 }
 
 model Team {
@@ -148,4 +153,14 @@ model Event {
   type      String
   payload   Json
   createdAt DateTime @default(now())
+}
+
+model TwilioOtp {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  user         User      @relation(fields: [userId], references: [id])
+  otp          String
+  twilioNumber String
+  expiry       DateTime
+  createdAt    DateTime  @default(now())
 }

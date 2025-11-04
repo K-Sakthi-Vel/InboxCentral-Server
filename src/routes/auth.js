@@ -77,7 +77,15 @@ const generateToken = (user) => {
 // @route POST /api/auth/signup
 // @desc Register user
 router.post('/signup', async (req, res) => {
-  const { email, password, name, twilioNumber } = req.body;
+  const {
+    email,
+    password,
+    name,
+    twilioAccountSid,
+    twilioAuthToken,
+    twilioSmsFrom,
+    twilioWhatsappFrom,
+  } = req.body;
 
   try {
     let user = await prisma.user.findUnique({ where: { email } });
@@ -92,9 +100,13 @@ router.post('/signup', async (req, res) => {
         email,
         password: hashedPassword,
         name,
-        twilioNumber: twilioNumber || null, // Save twilioNumber if provided
+        twilioAccountSid: twilioAccountSid || null,
+        twilioAuthToken: twilioAuthToken || null,
+        twilioSmsFrom: twilioSmsFrom || null,
+        twilioWhatsappFrom: twilioWhatsappFrom || null,
         isTwilioVerified: false, // Default to false
       },
+      include: { teamRoles: true }, // Include teamRoles
     });
 
     const token = generateToken(user);
@@ -105,7 +117,11 @@ router.post('/signup', async (req, res) => {
         email: user.email,
         name: user.name,
         isTwilioVerified: user.isTwilioVerified,
-        twilioNumber: user.twilioNumber,
+        twilioAccountSid: user.twilioAccountSid,
+        twilioAuthToken: user.twilioAuthToken,
+        twilioSmsFrom: user.twilioSmsFrom,
+        twilioWhatsappFrom: user.twilioWhatsappFrom,
+        teamRoles: user.teamRoles, // Include teamRoles
       },
     });
   } catch (error) {
@@ -120,7 +136,10 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { teamRoles: true }, // Include teamRoles
+    });
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
@@ -139,6 +158,7 @@ router.post('/login', async (req, res) => {
         name: user.name,
         isTwilioVerified: user.isTwilioVerified,
         twilioNumber: user.twilioNumber,
+        teamRoles: user.teamRoles, // Include teamRoles
       },
     });
   } catch (error) {
@@ -214,6 +234,10 @@ router.get('/session', async (req, res) => {
         avatarUrl: user.avatarUrl,
         isTwilioVerified: user.isTwilioVerified,
         twilioNumber: user.twilioNumber,
+        twilioAccountSid: user.twilioAccountSid,
+        twilioAuthToken: user.twilioAuthToken,
+        twilioSmsFrom: user.twilioSmsFrom,
+        twilioWhatsappFrom: user.twilioWhatsappFrom,
         teamRoles: user.teamRoles,
       },
     });
@@ -249,7 +273,24 @@ router.post('/request-twilio-otp', protect, async (req, res) => {
   }
 
   try {
-    const success = await sendWhatsappOtp(userId, twilioNumber);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        twilioAccountSid: true,
+        twilioAuthToken: true,
+        twilioWhatsappFrom: true,
+      },
+    });
+
+    if (!user || !user.twilioAccountSid || !user.twilioAuthToken || !user.twilioWhatsappFrom) {
+      return res.status(400).json({ message: 'Twilio credentials not found for this user.' });
+    }
+
+    const success = await sendWhatsappOtp(userId, twilioNumber, {
+      twilioAccountSid: user.twilioAccountSid,
+      twilioAuthToken: user.twilioAuthToken,
+      twilioWhatsappFrom: user.twilioWhatsappFrom,
+    });
     if (success) {
       res.status(200).json({ message: 'OTP sent successfully to your WhatsApp.' });
     } else {
@@ -272,9 +313,39 @@ router.post('/verify-twilio-otp', protect, async (req, res) => {
   }
 
   try {
-    const result = await verifyWhatsappOtp(userId, twilioNumber, otp);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        twilioAccountSid: true,
+        twilioAuthToken: true,
+        twilioSmsFrom: true,
+        twilioWhatsappFrom: true,
+      },
+    });
+
+    if (!user || !user.twilioAccountSid || !user.twilioAuthToken || !user.twilioSmsFrom || !user.twilioWhatsappFrom) {
+      return res.status(400).json({ message: 'Twilio credentials not found for this user.' });
+    }
+
+    const result = await verifyWhatsappOtp(
+      userId,
+      twilioNumber,
+      otp,
+      {
+        twilioAccountSid: user.twilioAccountSid,
+        twilioAuthToken: user.twilioAuthToken,
+      },
+      user.twilioAccountSid,
+      user.twilioAuthToken,
+      user.twilioSmsFrom,
+      user.twilioWhatsappFrom
+    );
     if (result.success) {
-      res.status(200).json({ message: result.message });
+      const updatedUser = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { teamRoles: true }, // Include teamRoles
+      });
+      res.status(200).json({ message: result.message, user: updatedUser });
     } else {
       res.status(400).json({ message: result.message });
     }
@@ -287,23 +358,33 @@ router.post('/verify-twilio-otp', protect, async (req, res) => {
 // @route PUT /api/auth/update-twilio-number
 // @desc Update user's Twilio number and reset verification status
 router.put('/update-twilio-number', protect, async (req, res) => {
-  const { twilioNumber } = req.body;
+  const { twilioNumber, twilioAccountSid, twilioAuthToken, twilioSmsFrom, twilioWhatsappFrom } = req.body;
   const userId = req.user.id;
 
-  if (!twilioNumber) {
-    return res.status(400).json({ message: 'Twilio number is required.' });
+  if (!twilioNumber && !twilioAccountSid && !twilioAuthToken && !twilioSmsFrom && !twilioWhatsappFrom) {
+    return res.status(400).json({ message: 'At least one Twilio detail is required for update.' });
   }
 
   try {
+    const updateData = {};
+    if (twilioNumber) updateData.twilioNumber = twilioNumber;
+    if (twilioAccountSid) updateData.twilioAccountSid = twilioAccountSid;
+    if (twilioAuthToken) updateData.twilioAuthToken = twilioAuthToken;
+    if (twilioSmsFrom) updateData.twilioSmsFrom = twilioSmsFrom;
+    if (twilioWhatsappFrom) updateData.twilioWhatsappFrom = twilioWhatsappFrom;
+
+    // If any Twilio number or credential is being updated, reset verification status
+    if (twilioNumber || twilioAccountSid || twilioAuthToken || twilioSmsFrom || twilioWhatsappFrom) {
+      updateData.isTwilioVerified = false;
+    }
+
     const user = await prisma.user.update({
       where: { id: userId },
-      data: {
-        twilioNumber: twilioNumber,
-        isTwilioVerified: false, // Reset verification status
-      },
+      data: updateData,
+      include: { teamRoles: true }, // Include teamRoles
     });
     res.status(200).json({
-      message: 'Twilio number updated. Please verify the new number.',
+      message: 'Twilio details updated. Please verify the new number if applicable.',
       user: {
         id: user.id,
         email: user.email,
@@ -311,10 +392,55 @@ router.put('/update-twilio-number', protect, async (req, res) => {
         avatarUrl: user.avatarUrl,
         isTwilioVerified: user.isTwilioVerified,
         twilioNumber: user.twilioNumber,
+        twilioAccountSid: user.twilioAccountSid,
+        twilioAuthToken: user.twilioAuthToken,
+        twilioSmsFrom: user.twilioSmsFrom,
+        twilioWhatsappFrom: user.twilioWhatsappFrom,
+        teamRoles: user.teamRoles, // Include teamRoles
       },
     });
   } catch (error) {
-    console.error('Error updating Twilio number:', error);
+    console.error('Error updating Twilio details:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
+// @route POST /api/auth/remove-twilio-number
+// @desc Remove user's Twilio number and reset verification status
+router.post('/remove-twilio-number', protect, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        twilioNumber: null,
+        isTwilioVerified: false,
+        twilioAccountSid: null,
+        twilioAuthToken: null,
+        twilioSmsFrom: null,
+        twilioWhatsappFrom: null,
+      },
+      include: { teamRoles: true }, // Include teamRoles
+    });
+    res.status(200).json({
+      message: 'Twilio verified number removed successfully.',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        isTwilioVerified: user.isTwilioVerified,
+        twilioNumber: user.twilioNumber,
+        twilioAccountSid: user.twilioAccountSid,
+        twilioAuthToken: user.twilioAuthToken,
+        twilioSmsFrom: user.twilioSmsFrom,
+        twilioWhatsappFrom: user.twilioWhatsappFrom,
+        teamRoles: user.teamRoles, // Include teamRoles
+      },
+    });
+  } catch (error) {
+    console.error('Error removing Twilio details:', error);
     res.status(500).json({ message: 'Server error.' });
   }
 });
