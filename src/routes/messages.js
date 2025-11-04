@@ -13,6 +13,9 @@ const router = express.Router();
 router.post('/send', async (req, res) => {
   try {
     const { body: bodyText, channel = 'SMS', contactId, threadId, scheduleAt } = req.body;
+    const userId = req.user?.id; // Assuming userId is available from authenticated request
+    if (!userId) return res.status(401).json({ error: 'Unauthorized: User ID not found' });
+
     const targetContactId = contactId || threadId;
     if (!bodyText || !targetContactId) return res.status(400).json({ error: 'body and contactId required' });
 
@@ -32,7 +35,7 @@ router.post('/send', async (req, res) => {
         body: bodyText,
         status: 'PENDING',
         scheduledAt: scheduleAt ? new Date(scheduleAt) : null,
-        createdById: null
+        createdById: userId // Set createdById from req.user.id
       }
     });
 
@@ -50,7 +53,7 @@ router.post('/send', async (req, res) => {
 
     // Immediate send (sync)
     try {
-      const sender = createSender(channel);
+      const sender = createSender(channel, userId); // Pass userId to createSender
       const sendResp = await sender.send({ to: contact.phone || contact.email || '', body: bodyText, media: [] });
 
       await prisma.message.update({
