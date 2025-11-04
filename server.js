@@ -6,14 +6,18 @@ const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const helmet = require('helmet');
 const cors = require('cors');
+const passport = require('passport');
+const jwt = require('jsonwebtoken');
 
-const { prisma } = require('./src/lib/db');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 const authRouter = require('./src/routes/auth');
 const webhooksRouter = require('./src/routes/webhooks');
 const messagesRouter = require('./src/routes/messages');
 const inboxRouter = require('./src/routes/inbox');
 const settingsRouter = require('./src/routes/settings');
+const notesRouter = require('./src/routes/notes');
 
 const PORT = process.env.PORT || 4000;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -26,29 +30,81 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(cors({ origin: CORS_ORIGIN }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
+app.use(passport.initialize()); // Initialize passport
+
+// JWT Strategy for protecting routes
+const JwtStrategy = require('passport-jwt').Strategy;
+const ExtractJwt = require('passport-jwt').ExtractJwt;
+
+const opts = {};
+opts.jwtFromRequest = ExtractJwt.fromAuthHeaderAsBearerToken();
+opts.secretOrKey = process.env.JWT_SECRET;
+
+passport.use(new JwtStrategy(opts, async (jwt_payload, done) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: jwt_payload.id } });
+    if (user) {
+      return done(null, user);
+    }
+    return done(null, false);
+  } catch (error) {
+    return done(error, false);
+  }
+}));
+
+// Middleware to protect routes
+const authenticateJWT = passport.authenticate('jwt', { session: false });
 
 /** Health */
+/** Health Check Endpoint with Retry Logic */
 app.get('/', async (req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ ok: true, ts: new Date().toISOString() });
-  } catch (err) {
-    console.log("db_connection_failed", err)
-    res.status(500).json({ ok: false, error: 'db_connection_failed' });
+  const MAX_RETRIES = 3; // Number of times to try the connection
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // 1. Attempt to connect
+      await prisma.$queryRaw`SELECT 1`;
+      
+      // 2. Success! Respond immediately and break the loop
+      return res.status(200).json({ 
+        status: 'ok', 
+        database: 'connected', 
+        timestamp: new Date().toISOString(),
+        attempts: attempt // Useful for monitoring cold starts
+      });
+
+    } catch (err) {
+      // 3. Log the failure
+      console.error(`DB_CONNECTION_FAILED on attempt ${attempt}:`, err);
+
+      // 4. If it's the last attempt, fail the health check
+      if (attempt === MAX_RETRIES) {
+        return res.status(503).json({ 
+          status: 'error', 
+          database: 'disconnected', 
+          code: 'DB_CONNECTION_FAILED_AFTER_RETRIES' 
+        });
+      }
+
+      // 5. Wait a moment before the next retry (optional, but good practice)
+      await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+    }
   }
 });
 
 /** Mount routers under /api */
 app.use('/api/auth', authRouter);
 app.use('/api/webhooks', webhooksRouter);
-app.use('/api/messages', messagesRouter);
-app.use('/api/inbox', inboxRouter);
-app.use('/api/settings', settingsRouter);
+app.use('/api/messages', authenticateJWT, messagesRouter); // Protect messages routes
+app.use('/api/inbox', authenticateJWT, inboxRouter);       // Protect inbox routes
+app.use('/api/settings', authenticateJWT, settingsRouter); // Protect settings routes
+app.use('/api/notes', authenticateJWT, notesRouter);       // Protect notes routes
 
 /** 404 fallback */
 app.use((req, res) => res.status(404).json({ error: 'not_found' }));
 
 /** Start server */
+const { initSocket } = require('./src/lib/socket'); // Import initSocket
+
 const server = app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
   if (process.env.START_SCHEDULER === 'true') {
@@ -62,9 +118,15 @@ const server = app.listen(PORT, () => {
   }
 });
 
+// Setup Socket.IO
+const io = initSocket(server, CORS_ORIGIN); // Initialize Socket.IO
+
 /** Graceful shutdown */
 async function shutdown() {
   console.log('Shutting down...');
+  io.close(() => {
+    console.log('Socket.IO server closed.');
+  });
   server.close(async () => {
     try {
       await prisma.$disconnect();

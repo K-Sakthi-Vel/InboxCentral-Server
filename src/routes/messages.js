@@ -2,6 +2,7 @@
 const express = require('express');
 const { prisma } = require('../lib/db');
 const { createSender } = require('../lib/integrations');
+const { getIo } = require('../lib/socket'); // Import getIo
 
 const router = express.Router();
 
@@ -61,7 +62,20 @@ router.post('/send', async (req, res) => {
         data: { teamId: team.id, type: 'message.outbound.sent', payload: { messageId: msg.id, externalId: sendResp.externalId } }
       });
 
-      // TODO: realtime broadcast
+      // Realtime broadcast
+      const io = getIo(); // Get the initialized io instance
+      const broadcastMessage = {
+        id: msg.id,
+        contactId: msg.contactId,
+        direction: msg.direction,
+        body: msg.body,
+        media: msg.media,
+        createdAt: msg.createdAt.toISOString(),
+        channel: msg.channel,
+      };
+      io.emit('message.new', broadcastMessage);
+      console.log('Emitted message.new (outbound):', broadcastMessage);
+
       return res.json({ ok: true, messageId: msg.id, providerResp: sendResp });
     } catch (errSend) {
       // eslint-disable-next-line no-console

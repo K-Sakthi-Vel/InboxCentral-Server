@@ -9,12 +9,37 @@ const router = express.Router();
  */
 router.get('/threads', async (req, res) => {
   try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
     const defaultTeamName = process.env.DEFAULT_TEAM_NAME || 'Demo Team';
     let team = await prisma.team.findFirst({ where: { name: defaultTeamName } });
     if (!team) team = await prisma.team.create({ data: { name: defaultTeamName } });
 
     const contacts = await prisma.contact.findMany({
-      where: { teamId: team.id },
+      where: {
+        teamId: team.id,
+        OR: [
+          {
+            messages: {
+              some: {
+                createdById: req.user.id,
+              },
+            },
+          },
+          {
+            messages: {
+              some: {
+                contact: {
+                  phone: user.twilioNumber,
+                },
+              },
+            },
+          },
+        ],
+      },
       include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
       orderBy: { updatedAt: 'desc' },
       take: 200

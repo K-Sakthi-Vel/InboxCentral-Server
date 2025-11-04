@@ -37,10 +37,20 @@ enum MessageStatus {
 model User {
   id         String       @id @default(cuid())
   email      String       @unique
+  password   String?      // For email/password login
+  googleId   String?      @unique // For Google OAuth
   name       String?
-  avatarUrl  String?
-  createdAt  DateTime     @default(now())
-  teamRoles  TeamMember[]
+  avatarUrl        String?
+  twilioNumber     String?   @unique
+  isTwilioVerified Boolean @default(false)
+  twilioAccountSid  String?
+  twilioAuthToken   String?
+  twilioSmsFrom     String?
+  twilioWhatsappFrom String?
+  createdAt        DateTime  @default(now())
+  teamRoles        TeamMember[]
+  notes            Note[]
+  twilioOtp        TwilioOtp?
 }
 
 model Team {
@@ -107,15 +117,18 @@ model Message {
 
 model Note {
   id         String   @id @default(cuid())
-  contact    Contact  @relation(fields: [contactId], references: [id])
-  contactId  String
+  contact    Contact? @relation(fields: [contactId], references: [id])
+  contactId  String?
   team       Team     @relation(fields: [teamId], references: [id])
   teamId     String
+  author     User     @relation(fields: [authorId], references: [id])
   authorId   String
   content    String
   isPrivate  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([contactId, teamId])
 }
 
 model ScheduledJob {
@@ -140,4 +153,14 @@ model Event {
   type      String
   payload   Json
   createdAt DateTime @default(now())
+}
+
+model TwilioOtp {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  user         User      @relation(fields: [userId], references: [id])
+  otp          String
+  twilioNumber String
+  expiry       DateTime
+  createdAt    DateTime  @default(now())
 }

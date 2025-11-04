@@ -90,9 +90,10 @@ function parseTwilioWebhook(raw) {
  * Send via Twilio (SMS or WhatsApp)
  */
 async function sendSmsOrWhatsapp({ to, body, media = [], channel = 'SMS' }) {
+  console.log(`Attempting to send message: to=${to}, channel=${channel}, body=${body}`);
   if (!twilioClient) throw new Error('Twilio client not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN)');
   const from = channel === 'WHATSAPP' ? twilioFromWhatsApp : twilioFromSms;
-  if (!from) throw new Error('TWILIO_SMS_FROM / TWILIO_WHATSAPP_FROM not set');
+  if (!from) throw new Error(`TWILIO_SMS_FROM / TWILIO_WHATSAPP_FROM not set for channel: ${channel}`);
 
   const toNormalized = channel === 'WHATSAPP' && !String(to).startsWith('whatsapp:') ? `whatsapp:${to}` : to;
 
